@@ -1,5 +1,8 @@
 import { getChecksum, RECORD_SIZE } from './utils.ts';
 
+/**
+ * File attributes for the entry.
+ */
 export interface TarFileAttributes {
 	/** @default 0o664 */
 	mode?: number;
@@ -15,6 +18,9 @@ export interface TarFileAttributes {
 	group?: string;
 }
 
+/**
+ * Information about the entry that should be put into the buffer.
+ */
 export interface TarFileEntry {
 	/** Entry name */
 	filename: string;

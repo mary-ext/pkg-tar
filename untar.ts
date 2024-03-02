@@ -27,6 +27,9 @@ const FILE_TYPES: Record<number, string> = {
 	7: 'contiguous_file',
 };
 
+/**
+ * Reads tar archives
+ */
 export async function* untar(reader: Reader): AsyncGenerator<TarEntry> {
 	const header = new Uint8Array(512);
 
