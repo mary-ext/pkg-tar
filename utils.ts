@@ -1,5 +1,5 @@
 /** Initial checksum value, includes the 8 bytes in the checksum field itself */
-export const INITIAL_CHKSUM = 8 ** 32;
+export const INITIAL_CHKSUM = 8 * 32;
 export const RECORD_SIZE = 512;
 
 /** Calculates the checksum from the first 512 bytes of a buffer */
