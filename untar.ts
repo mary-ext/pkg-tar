@@ -16,7 +16,17 @@ export interface Reader {
 
 const decoder = new TextDecoder();
 
-const FILE_TYPES: Record<number, string> = {
+export type EntryType =
+	| 'file'
+	| 'link'
+	| 'symlink'
+	| 'character_device'
+	| 'block_device'
+	| 'directory'
+	| 'fifo'
+	| 'contiguous_file';
+
+const ENTRY_TYPES: Record<number, EntryType> = {
 	0: 'file',
 	1: 'link',
 	2: 'symlink',
@@ -28,127 +38,238 @@ const FILE_TYPES: Record<number, string> = {
 };
 
 /**
- * Reads tar archives
+ * Reads tar archive from a stream
  */
-export async function* untar(reader: Reader): AsyncGenerator<TarEntry> {
-	const header = new Uint8Array(512);
+export async function* untar(stream: ReadableStream<Uint8Array>): AsyncGenerator<TarEntry> {
+	const reader = stream.getReader();
 
-	let entry: TarEntry | undefined;
+	const header = new Uint8Array(RECORD_SIZE);
+	let read = 0;
 
 	while (true) {
-		if (entry) {
-			await entry.discard();
-		}
+		const { done, value } = await reader.read();
 
-		const res = await reader.read(header);
-
-		if (res === null) {
+		if (done) {
 			break;
 		}
 
-		// validate checksum
-		{
-			const expected = readOctal(header, 148, 8);
-			const actual = getChecksum(header);
-			if (expected !== actual) {
-				if (actual === INITIAL_CHKSUM) {
-					break;
+		let chunk = value;
+
+		while (chunk.byteLength > 0) {
+			const remaining = Math.min(chunk.byteLength, RECORD_SIZE - read);
+
+			header.set(chunk.subarray(0, remaining), read);
+			chunk = chunk.subarray(remaining);
+
+			read += remaining;
+
+			if (read === 512) {
+				// validate checksum
+				{
+					const expected = readOctal(header, 148, 8);
+					const actual = getChecksum(header);
+
+					if (expected !== actual) {
+						if (actual === INITIAL_CHKSUM) {
+							break;
+						}
+
+						console.log(header);
+						throw new Error(`invalid checksum, expected ${expected} got ${actual}`);
+					}
 				}
 
-				throw new Error(`invalid checksum, expected ${expected} got ${actual}`);
+				// validate magic
+				{
+					const magic = readString(header, 257, 8);
+					if (!magic.startsWith('ustar')) {
+						throw new Error(`unsupported archive format: ${magic}`);
+					}
+				}
+
+				const { promise, resolve } = Promise.withResolvers<Uint8Array>();
+				const entry = new TarEntry(header, reader, chunk, resolve);
+
+				yield entry;
+
+				if (entry.size > 0) {
+					if (!entry.bodyUsed) {
+						await entry.skip();
+					}
+
+					chunk = await promise;
+				}
+
+				read = 0;
 			}
 		}
-
-		// validate magic
-		{
-			const magic = readString(header, 257, 8);
-			if (!magic.startsWith('ustar')) {
-				throw new Error(`unsupported archive format: ${magic}`);
-			}
-		}
-
-		entry = new TarEntry(header, reader);
-		yield entry;
 	}
 }
 
 class TarEntry {
-	#reader: Reader;
-	#read: number = 0;
+	/** 512-byte header chunk */
+	#header: Uint8Array;
+	/** Memoized result for `this.size` */
+	#sizeField: number | undefined;
 
-	readonly name: string;
-	readonly mode: number;
-	readonly uid: number;
-	readonly gid: number;
-	readonly size: number;
-	readonly mtime: number;
-	readonly type: string;
-	readonly linkName: string;
-	readonly owner: string;
-	readonly group: string;
-	readonly entrySize: number;
+	#bodyUsed = false;
+	#reader: ReadableStreamDefaultReader;
+	#buffered: Uint8Array | undefined;
+	#callback: (remaining: Uint8Array) => void;
 
-	constructor(header: Uint8Array, reader: Reader) {
-		const name = readString(header, 0, 100);
-		const mode = readOctal(header, 100, 8);
-		const uid = readOctal(header, 108, 8);
-		const gid = readOctal(header, 116, 8);
-		const size = readOctal(header, 124, 12);
-		const mtime = readOctal(header, 136, 12);
-		const type = readOctal(header, 156, 1);
-		const link_name = readString(header, 157, 100);
-		const owner = readString(header, 265, 32);
-		const group = readString(header, 297, 32);
-		const prefix = readString(header, 345, 155);
-
-		this.name = prefix.length > 0 ? prefix + '/' + name : name;
-		this.mode = mode;
-		this.uid = uid;
-		this.gid = gid;
-		this.size = size;
-		this.mtime = mtime;
-		this.type = FILE_TYPES[type] ?? '' + type;
-		this.linkName = link_name;
-		this.owner = owner;
-		this.group = group;
-		this.entrySize = Math.ceil(this.size / RECORD_SIZE) * RECORD_SIZE;
+	constructor(
+		header: Uint8Array,
+		reader: ReadableStreamDefaultReader,
+		buffered: Uint8Array,
+		callback: (remaining: Uint8Array) => void,
+	) {
+		this.#header = header;
 
 		this.#reader = reader;
+		this.#buffered = buffered.byteLength > 0 ? buffered : undefined;
+		this.#callback = callback;
 	}
 
-	async read(p: Uint8Array): Promise<number | null> {
-		const remaining = this.size - this.#read;
+	/** File name */
+	get name(): string {
+		const header = this.#header;
+		const name = readString(header, 0, 100);
+		const prefix = readString(header, 345, 155);
 
-		if (remaining <= 0) {
-			return null;
-		}
-
-		if (p.byteLength <= remaining) {
-			this.#read += p.byteLength;
-			return await this.#reader.read(p);
-		}
-
-		// User exceeded the remaining size of this entry, we can't fulfill that
-		// directly because it means reading partially into the next entry
-		this.#read += remaining;
-
-		const block = new Uint8Array(remaining);
-		const n = await this.#reader.read(block);
-
-		p.set(block, 0);
-		return n;
+		return prefix.length > 0 ? prefix + '/' + name : name;
+	}
+	/** File permissions */
+	get mode(): number {
+		return readOctal(this.#header, 100, 8);
+	}
+	/** User ID */
+	get uid(): number {
+		return readOctal(this.#header, 108, 8);
+	}
+	/** Group ID */
+	get gid(): number {
+		return readOctal(this.#header, 116, 8);
+	}
+	/** File size */
+	get size(): number {
+		return this.#sizeField ??= readOctal(this.#header, 124, 12);
+	}
+	/** Modified time */
+	get mtime(): number {
+		return readOctal(this.#header, 136, 12);
+	}
+	/** File type */
+	get type(): EntryType {
+		const type = readOctal(this.#header, 156, 1);
+		return ENTRY_TYPES[type];
+	}
+	/** Link name */
+	get linkName(): string {
+		return readString(this.#header, 157, 100);
+	}
+	/** Owner name */
+	get owner(): string {
+		return readString(this.#header, 265, 32);
+	}
+	/** Group name */
+	get group(): string {
+		return readString(this.#header, 297, 32);
 	}
 
-	async discard(): Promise<void> {
-		const remaining = this.entrySize - this.#read;
+	get #entryStream(): ReadableStream<Uint8Array> {
+		let bodyRemaining = this.size;
+		let entryRemaining = Math.ceil(bodyRemaining / RECORD_SIZE) * RECORD_SIZE;
 
-		if (remaining <= 0) {
-			return;
+		return new ReadableStream({
+			start: () => {
+				if (this.#bodyUsed) {
+					throw new Error(`Body already consumed`);
+				}
+
+				this.#bodyUsed = true;
+			},
+			pull: async (controller) => {
+				if (entryRemaining === 0) {
+					controller.close();
+					return;
+				}
+
+				let chunk: Uint8Array;
+
+				if (this.#buffered) {
+					chunk = this.#buffered;
+					this.#buffered = undefined;
+				} else {
+					const result = await this.#reader.read();
+
+					if (result.done) {
+						controller.error(new Error('Unexpected end of stream'));
+						return;
+					}
+
+					chunk = result.value;
+				}
+
+				const size = chunk.length;
+				const entrySize = Math.min(entryRemaining, size);
+				const bodySize = Math.min(bodyRemaining, size);
+
+				if (bodySize > 0) {
+					controller.enqueue(chunk.subarray(0, bodySize));
+				}
+
+				bodyRemaining -= bodySize;
+				entryRemaining -= entrySize;
+
+				if (entryRemaining === 0) {
+					this.#callback(chunk.subarray(entrySize));
+					controller.close();
+				}
+			},
+		});
+	}
+
+	/** Whether the body has been consumed */
+	get bodyUsed(): boolean {
+		return this.#bodyUsed;
+	}
+
+	/** Get a readable stream of the file contents */
+	get body(): ReadableStream<Uint8Array> {
+		return this.#entryStream;
+	}
+
+	/** Skip reading this entry. There's no need to call this manually, it will be skipped if not used */
+	async skip(): Promise<void> {
+		const reader = this.#entryStream.getReader();
+
+		// deno-lint-ignore no-empty
+		while (!(await reader.read()).done) {}
+	}
+
+	/** Read the file contents to an array buffer */
+	async arrayBuffer(): Promise<ArrayBuffer> {
+		const uint8 = new Uint8Array(this.size);
+		let offset = 0;
+
+		for await (const chunk of this.#entryStream) {
+			uint8.set(chunk, offset);
+			offset += chunk.byteLength;
 		}
 
-		this.#read += remaining;
+		return uint8.buffer;
+	}
 
-		await this.#reader.seek(remaining);
+	/** Read the file contents as a string */
+	async text(): Promise<string> {
+		const bytes = await this.arrayBuffer();
+		return decoder.decode(bytes);
+	}
+
+	/** Read the file contents as a JSON */
+	async json(): Promise<string> {
+		const text = await this.text();
+		return JSON.parse(text);
 	}
 }
 

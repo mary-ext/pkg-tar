@@ -12,15 +12,14 @@ const buffer = writeTarEntry({
 	data: `Hello, **world**!`,
 });
 
-// `untar` expects a Reader interface, the package `@mary/reader` provides this
-// by letting you convert a Uint8Array async iterable to one.
+// `untar` lets you iterate over a tar archive, it's streamed, so you'd need to
+// pass a readable stream.
 
-for await (const entry of untar(reader)) {
+for await (const entry of untar(stream)) {
 	// If it's a file in the blobs directory...
 	if (entry.name.startsWith('blobs/')) {
-		// Read the contents...
-		const buffer = new Uint8Array(entry.size);
-		await entry.read(buffer);
+		const buffer = await entry.arrayBuffer();
+		// -> ArrayBuffer(...)
 	}
 }
 ```
