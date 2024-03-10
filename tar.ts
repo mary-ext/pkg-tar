@@ -38,7 +38,7 @@ const DEFAULT_ATTRS: TarFileAttributes = {};
  * Writes a single file entry in tar format, returns an array buffer which can
  * then be concatenated or written to a stream.
  */
-export function writeTarEntry(entry: TarFileEntry): ArrayBuffer {
+export function writeTarEntry(entry: TarFileEntry): Uint8Array {
 	const { filename, data, attrs = DEFAULT_ATTRS } = entry;
 
 	let name = filename;
@@ -117,7 +117,7 @@ export function writeTarEntry(entry: TarFileEntry): ArrayBuffer {
 		dest.set(data_buf, 0);
 	}
 
-	return buf;
+	return new Uint8Array(buf);
 }
 
 function normalizeData(data: string | ArrayBuffer | Uint8Array): Uint8Array {
