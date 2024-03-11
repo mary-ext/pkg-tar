@@ -176,9 +176,8 @@ class TarEntry {
 		return readString(this.#header, 297, 32);
 	}
 
-	get #entryStream(): ReadableStream<Uint8Array> {
-		let bodyRemaining = this.size;
-		let entryRemaining = Math.ceil(bodyRemaining / RECORD_SIZE) * RECORD_SIZE;
+	get #stream(): ReadableStream<Uint8Array> {
+		let remaining = Math.ceil(this.size / RECORD_SIZE) * RECORD_SIZE;
 
 		return new ReadableStream({
 			start: () => {
@@ -189,7 +188,7 @@ class TarEntry {
 				this.#bodyUsed = true;
 			},
 			pull: async (controller) => {
-				if (entryRemaining === 0) {
+				if (remaining === 0) {
 					controller.close();
 					return;
 				}
@@ -203,26 +202,20 @@ class TarEntry {
 					const result = await this.#reader.read();
 
 					if (result.done) {
-						controller.error(new Error('Unexpected end of stream'));
+						controller.error(new Error(`Unexpected end of stream`));
 						return;
 					}
 
 					chunk = result.value;
 				}
 
-				const size = chunk.length;
-				const entrySize = Math.min(entryRemaining, size);
-				const bodySize = Math.min(bodyRemaining, size);
+				const reading = Math.min(remaining, chunk.length);
 
-				if (bodySize > 0) {
-					controller.enqueue(chunk.subarray(0, bodySize));
-				}
+				controller.enqueue(remaining > reading ? chunk : chunk.subarray(0, reading));
+				remaining -= reading;
 
-				bodyRemaining -= bodySize;
-				entryRemaining -= entrySize;
-
-				if (entryRemaining === 0) {
-					this.#callback(chunk.subarray(entrySize));
+				if (remaining === 0) {
+					this.#callback(chunk.subarray(reading));
 					controller.close();
 				}
 			},
@@ -236,12 +229,41 @@ class TarEntry {
 
 	/** Get a readable stream of the file contents */
 	get body(): ReadableStream<Uint8Array> {
-		return this.#entryStream;
+		const reader = this.#stream.getReader();
+		let remaining = this.size;
+
+		return new ReadableStream({
+			pull: async (controller) => {
+				if (remaining === 0) {
+					controller.close();
+					return;
+				}
+
+				const { done, value: chunk } = await reader.read();
+				if (done) {
+					controller.error(new Error(`Unexpected end of stream`));
+					return;
+				}
+
+				const reading = Math.min(remaining, chunk.length);
+
+				controller.enqueue(remaining > reading ? chunk : chunk.subarray(0, reading));
+				remaining -= reading;
+
+				if (remaining === 0) {
+					// Read through the padding
+					// deno-lint-ignore no-empty
+					while (!(await reader.read()).done) {}
+
+					controller.close();
+				}
+			},
+		});
 	}
 
 	/** Skip reading this entry. There's no need to call this manually, it will be skipped if not used */
 	async skip(): Promise<void> {
-		const reader = this.#entryStream.getReader();
+		const reader = this.#stream.getReader();
 
 		// deno-lint-ignore no-empty
 		while (!(await reader.read()).done) {}
@@ -252,7 +274,7 @@ class TarEntry {
 		const uint8 = new Uint8Array(this.size);
 		let offset = 0;
 
-		for await (const chunk of this.#entryStream) {
+		for await (const chunk of this.body) {
 			uint8.set(chunk, offset);
 			offset += chunk.byteLength;
 		}
