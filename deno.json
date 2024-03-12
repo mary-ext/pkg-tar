@@ -10,6 +10,6 @@
 		"singleQuote": true
 	},
 	"publish": {
-		"exclude": [".vscode/"]
+		"include": ["lib/", "README.md", "LICENSE", "deno.json"]
 	}
 }
