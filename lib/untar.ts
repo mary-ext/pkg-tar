@@ -16,6 +16,7 @@ export interface Reader {
 
 const decoder = new TextDecoder();
 
+/** Entry file type */
 export type EntryType =
 	| 'file'
 	| 'link'
