@@ -1,7 +1,7 @@
 {
 	"name": "@mary/tar",
 	"version": "0.1.2",
-	"exports": "./mod.ts",
+	"exports": "./lib/mod.ts",
 	"fmt": {
 		"useTabs": true,
 		"indentWidth": 2,

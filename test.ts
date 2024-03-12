@@ -1,6 +1,6 @@
 import { assertEquals } from 'jsr:@std/assert';
 
-import { EntryType, untar, writeTarEntry } from './mod.ts';
+import { EntryType, untar, writeTarEntry } from './lib/mod.ts';
 
 const expected: [type: EntryType, name: string][] = [
 	['directory', '.vscode/'],
