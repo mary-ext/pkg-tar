@@ -1,5 +1,6 @@
 # tar
 
+[View on JSR](https://jsr.io/@mary/tar)\
 [Source code](https://codeberg.org/mary-ext/pkg-tar)
 
 Read and write tar archives.
