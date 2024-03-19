@@ -290,7 +290,8 @@ class TarEntry {
 	}
 
 	/** Read the file contents as a JSON */
-	async json(): Promise<string> {
+	// deno-lint-ignore no-explicit-any
+	async json(): Promise<any> {
 		const text = await this.text();
 		return JSON.parse(text);
 	}
