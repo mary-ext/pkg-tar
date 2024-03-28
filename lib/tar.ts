@@ -63,12 +63,12 @@ export function writeTarEntry(entry: TarFileEntry): Uint8Array {
 		}
 	}
 
-	const data_buf = normalizeData(data);
-	const data_size = data_buf.byteLength;
+	const dataBytes = normalizeData(data);
+	const dataSize = dataBytes.byteLength;
 
-	const padding_size = RECORD_SIZE - (data_size % RECORD_SIZE || RECORD_SIZE);
+	const paddingSize = RECORD_SIZE - (dataSize % RECORD_SIZE || RECORD_SIZE);
 
-	const buf = new ArrayBuffer(512 + data_size + padding_size);
+	const buf = new ArrayBuffer(512 + dataSize + paddingSize);
 
 	// File name
 	writeString(buf, name, 0, 100);
@@ -83,10 +83,10 @@ export function writeTarEntry(entry: TarFileEntry): Uint8Array {
 	writeString(buf, formatOctal(attrs.gid ?? 1000, 7), 116, 8);
 
 	// File size
-	writeString(buf, formatOctal(data_size, 11), 124, 12);
+	writeString(buf, formatOctal(dataSize, 11), 124, 12);
 
 	// Modified time
-	writeString(buf, formatOctal(attrs.mtime ?? Date.now(), 11), 136, 12);
+	writeString(buf, formatOctal(attrs.mtime ?? Date.now() / 1000, 11), 136, 12);
 
 	// File type
 	writeString(buf, '0', 156, 12);
@@ -113,8 +113,8 @@ export function writeTarEntry(entry: TarFileEntry): Uint8Array {
 
 	// Actual data
 	{
-		const dest = new Uint8Array(buf, 512, data_size);
-		dest.set(data_buf, 0);
+		const dest = new Uint8Array(buf, 512, dataSize);
+		dest.set(dataBytes, 0);
 	}
 
 	return new Uint8Array(buf);
