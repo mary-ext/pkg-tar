@@ -18,12 +18,12 @@ const DEFAULT_ATTRS: TarFileAttributes = {};
 /**
  * Creates a transform stream
  */
-export function createTarStream(entry: TarStreamEntry) {
+export function createTarStream(entry: TarStreamEntry): TransformStream<Uint8Array, Uint8Array> {
 	const { filename, size, attrs = DEFAULT_ATTRS } = entry;
 
 	let remaining = size;
 
-	return new TransformStream<Uint8Array, Uint8Array>({
+	return new TransformStream({
 		start(controller) {
 			let name = filename;
 			let prefix = '';
