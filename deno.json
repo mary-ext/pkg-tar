@@ -1,6 +1,6 @@
 {
 	"name": "@mary/tar",
-	"version": "0.2.3",
+	"version": "0.2.4",
 	"exports": "./lib/mod.ts",
 	"fmt": {
 		"useTabs": true,
