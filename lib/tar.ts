@@ -86,7 +86,7 @@ export function writeTarEntry(entry: TarFileEntry): Uint8Array {
 	writeString(buf, formatOctal(dataSize, 11), 124, 12);
 
 	// Modified time
-	writeString(buf, formatOctal((attrs.mtime ?? Date.now()) / 1000, 11), 136, 12);
+	writeString(buf, formatOctal(Math.floor((attrs.mtime ?? Date.now()) / 1000), 11), 136, 12);
 
 	// File type
 	writeString(buf, '0', 156, 12);
