@@ -1,4 +1,4 @@
-import { getChecksum, RECORD_SIZE } from './utils.ts';
+import { encoder, formatOctal, getChecksum, RECORD_SIZE, writeString } from './utils.ts';
 
 /**
  * File attributes for the entry.
@@ -29,8 +29,6 @@ export interface TarFileEntry {
 	/** Entry file attributes */
 	attrs?: TarFileAttributes;
 }
-
-const encoder = new TextEncoder();
 
 const DEFAULT_ATTRS: TarFileAttributes = {};
 
@@ -130,13 +128,4 @@ function normalizeData(data: string | ArrayBuffer | Uint8Array): Uint8Array {
 	}
 
 	return data;
-}
-
-function writeString(buf: ArrayBuffer, str: string, offset: number, size: number) {
-	const view = new Uint8Array(buf, offset, size);
-	encoder.encodeInto(str, view);
-}
-
-function formatOctal(input: number, length: number) {
-	return input.toString(8).padStart(length, '0');
 }
